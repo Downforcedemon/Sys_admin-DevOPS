@@ -162,3 +162,145 @@ if (Test-Path -Path "$registryPath\$valueName") {
 # Add a general confirmation message indicating that all scripts were successfully executed
 Write-Host "All scripts were successfully executed."
 
+##  local volumes must use a format that supports NTFS attributes.
+  # Get all local volumes excluding system partitions (Recovery and EFI System Partition)
+$volumes = Get-WmiObject Win32_LogicalDisk | Where-Object { $_.DriveType -eq 3 -and $_.DeviceID -notmatch "^C:" }
+
+# Loop through each volume and check the file system
+foreach ($volume in $volumes) {
+    $volumeLetter = $volume.DeviceID
+    $fileSystem = (Get-Volume -DriveLetter $volumeLetter).FileSystemType
+
+    # Check if the file system is neither NTFS nor ReFS
+    if ($fileSystem -ne "NTFS" -and $fileSystem -ne "ReFS") {
+        Write-Host "Volume $($volume.DeviceID) has an unsupported file system: $fileSystem (This is a finding)."
+    }
+    else {
+        Write-Host "Volume $($volume.DeviceID) has a supported file system: $fileSystem (This is acceptable)."
+    }
+}
+
+## Disable reversible encryption
+# Set the registry key for the policy
+Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Lsa" -Name "StorePasswordAsReversibleHash" -Value 0
+
+# Force a policy update
+gpupdate /force
+
+Write-Host "The 'Store passwords using reversible encryption' policy has been set to 'Disabled'."
+
+## NTDS permissions
+# Define the paths to NTDS database and log files
+$ntdsDatabasePath = "C:\Windows\NTDS\ntds.dit"
+$ntdsLogPath = "C:\Windows\NTDS"
+
+# Set permissions for NT AUTHORITY\SYSTEM and BUILTIN\Administrators
+$permissions = "NT AUTHORITY\SYSTEM:(I)(F)", "BUILTIN\Administrators:(I)(F)"
+
+# Apply permissions to NTDS database
+icacls.exe $ntdsDatabasePath /grant:r ($permissions -join ',') /T
+
+# Apply permissions to NTDS log files
+icacls.exe $ntdsLogPath /grant:r ($permissions -join ',') /T
+
+Write-Host "Permissions on NTDS database and log files have been set as specified."
+
+## prevent local accounts with blank password from using the network
+# Define the security option name
+$securityOption = "Limit local account use of blank passwords to console logon only"
+
+# Set the security option to "Enabled"
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LimitBlankPasswordUse" -Value 1
+
+# Verify the change
+$enabledValue = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa").LimitBlankPasswordUse
+
+if ($enabledValue -eq 1) {
+    Write-Host "The '$securityOption' policy has been set to 'Enabled'."
+} else {
+    Write-Host "Failed to set the '$securityOption' policy to 'Enabled'."
+}
+
+## disable anonymous enumeration of Security Account Manager (SAM) accounts
+# Define the security option name
+$securityOption = "Network access: Do not allow anonymous enumeration of SAM accounts"
+
+# Set the security option to "Enabled"
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" -Name "RestrictAnonymousSAM" -Value 1
+
+# Verify the change
+$enabledValue = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters").RestrictAnonymousSAM
+
+if ($enabledValue -eq 1) {
+    Write-Host "The '$securityOption' policy has been set to 'Enabled'."
+} else {
+    Write-Host "Failed to set the '$securityOption' policy to 'Enabled'."
+}
+
+## restrict anonymous access to Named Pipes and Shares
+# Define the security option name
+$securityOption = "Network access: Restrict anonymous access to Named Pipes and Shares"
+
+# Set the security option to "Enabled"
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters" -Name "RestrictNullSessAccess" -Value 1
+
+# Verify the change
+$enabledValue = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters").RestrictNullSessAccess
+
+if ($enabledValue -eq 1) {
+    Write-Host "The '$securityOption' policy has been set to 'Enabled'."
+} else {
+    Write-Host "Failed to set the '$securityOption' policy to 'Enabled'."
+}
+
+##   prevent the storage of the LAN Manager hash of passwords.
+# Define the security option name
+$securityOption = "Network security: Do not store LAN Manager hash value on next password change"
+
+# Set the security option to "Enabled"
+Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "NoLMHash" -Value 1
+
+# Verify the change
+$enabledValue = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa").NoLMHash
+
+if ($enabledValue -eq 1) {
+    Write-Host "The '$securityOption' policy has been set to 'Enabled'."
+} else {
+    Write-Host "Failed to set the '$securityOption' policy to 'Enabled'."
+}
+
+##operating system user right
+# Define the user right assignment name
+$userRight = "SeTcbPrivilege" # "Act as part of the operating system"
+
+# Clear any existing entries for the user right assignment
+Secedit.exe /areas User_Rights /p /remove:$userRight
+
+Write-Host "The '$userRight' user right assignment has been cleared (no entries)."
+ 
+## token object user right
+# Define the user right assignment name
+$userRight = "SeCreateTokenPrivilege" # "Create a token object"
+
+# Clear any existing entries for the user right assignment
+Secedit.exe /configure /cfg "%windir%\security\templates\setup security.inf" /areas User_Rights /p /remove:$userRight
+
+Write-Host "The '$userRight' user right assignment has been cleared (no entries)."
+
+## debug programs user right assigned to the Administrators 
+# Define the user right assignment name
+$userRight = "SeDebugPrivilege" # "Debug programs"
+
+# Define the group to grant the user right (e.g., Administrators)
+$groupToGrant = "Administrators"
+
+# Define the full path to your security template file (replace with your actual path)
+$templateFilePath = "C:\Users\Administrator\Documents\Security\Templates\Template.inf"
+
+# Configure the user right assignment to include the specified group
+secedit.exe /configure /cfg $templateFilePath /areas User_Rights /p /user:$userRight="$groupToGrant"
+
+Write-Host "The '$userRight' user right assignment has been configured to include the '$groupToGrant' group."
+
+
+
