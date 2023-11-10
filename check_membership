@@ -1,0 +1,12 @@
+# Replace 'UserSamAccountName' with the actual SAM Account Name of your user
+$UserSamAccountName = '<add number> '
+Get-ADUser -Identity $UserSamAccountName -Properties MemberOf | Select-Object -ExpandProperty MemberOf | ForEach-Object {
+    $group = Get-ADGroup -Identity $_
+    $permissions = (Get-Acl "AD:\$($_)").Access
+    [PSCustomObject]@{
+        GroupName = $group.Name
+        GroupDistinguishedName = $group.DistinguishedName
+        Permissions = $permissions
+    }
+}
+
