@@ -1,0 +1,31 @@
+# Hardcoded group names
+$groupNames = @("Group1", "Group2", "Group3") # Add your group names here
+
+# Function to add a user to a group
+function Add-UserToGroup {
+    param(
+        [string]$userName,
+        [string]$groupName
+    )
+
+    try {
+        # Check if the group exists
+        $group = Get-ADGroup -Identity $groupName -ErrorAction Stop
+        # Add the user to the group
+        Add-ADGroupMember -Identity $group -Members $userName
+        Write-Host "User $userName has been added to group $groupName."
+    } catch {
+        Write-Host "Error: $_"
+    }
+}
+
+# Ask for the sAMAccountName
+$sAMAccountName = Read-Host -Prompt "Enter the sAMAccountName"
+
+# Import the Active Directory module
+Import-Module ActiveDirectory
+
+# Main logic
+foreach ($group in $groupNames) {
+    Add-UserToGroup -userName $sAMAccountName -groupName $group
+}
