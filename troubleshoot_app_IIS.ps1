@@ -34,31 +34,54 @@ function Get-WebsiteStatus {
     }
 }
 
-# Function to Analyze IIS Logs
+# Function to Analyze IIS Logs with Line Output
 function Test-IISLogs {
     Write-Host "`nAnalyzing IIS Logs..."
-    $logPath = Read-Host "Enter IIS Log File Path (Press Enter to use default paths: $($defaultLogPaths -join ', '))"
-    if (-not $logPath) { $logPath = $defaultLogPaths }
+    $logPaths = Read-Host "Enter IIS Log File Path (Press Enter to use default paths: $($defaultLogPaths -join ', '))"
+    if (-not $logPaths) { $logPaths = $defaultLogPaths }
 
-    $errorCodes = Read-Host "Enter the HTTP status codes to search for (comma-separated, e.g., 500,404)" -split ","
+    $errorCodes = Read-Host "Enter the HTTP status codes or patterns to search for (comma-separated, e.g., 500,404,GET)" -split ","
+    if (-not $errorCodes) {
+        Write-Host "No status codes or patterns entered. Exiting log analysis." -ForegroundColor Yellow
+        return
+    }
 
-    Write-Host "Searching logs for errors (${errorCodes -join ', '})..."
-    $errorCount = 0
-    foreach ($path in $logPath) {
-        foreach ($code in $errorCodes) {
-            $logMatches = Select-String -Path "$path\*.log" -Pattern " $code " -List
-            $count = $logMatches.Count
-            Write-Host "  Error ${code.Trim()} in $path: ${count} occurrences"
-            $errorCount += $count
+    foreach ($path in $logPaths) {
+        if (-not (Test-Path $path)) {
+            Write-Host "Log path '$path' does not exist. Skipping..." -ForegroundColor Yellow
+            continue
+        }
+
+        $logFiles = Get-ChildItem -Path $path -Filter *.log -ErrorAction SilentlyContinue
+        if (-not $logFiles) {
+            Write-Host "No log files found in '$path'. Skipping..." -ForegroundColor Yellow
+            continue
+        }
+
+        foreach ($logFile in $logFiles) {
+            Write-Host "`nAnalyzing file: $($logFile.FullName)" -ForegroundColor Cyan
+            $fileContent = Get-Content -Path $logFile.FullName -ErrorAction SilentlyContinue
+            if (-not $fileContent) {
+                Write-Host "Unable to read file '$($logFile.FullName)'. Skipping..." -ForegroundColor Yellow
+                continue
+            }
+
+            foreach ($code in $errorCodes) {
+                $logmatches = $fileContent | Select-String -Pattern "\s$code\s"
+                $count = $logmatches.Count
+                Write-Host "  Error $code in $($logFile.Name): $count occurrences" -ForegroundColor Yellow
+                
+                # Display the matching lines if any occurrences are found
+                if ($count -gt 0) {
+                    Write-Host "    Matching lines:" -ForegroundColor Green
+                    $logmatches | ForEach-Object { Write-Host "      $_" -ForegroundColor White }
+                }
+            }
         }
     }
-
-    if ($errorCount -eq 0) {
-        Write-Host "No errors found in the logs." -ForegroundColor Green
-    } else {
-        Write-Host "Errors detected. Check logs for details." -ForegroundColor Yellow
-    }
 }
+
+
 
 # Function to Check Event Viewer
 function Get-EventViewerErrors {
@@ -86,10 +109,10 @@ function Test-SlowRequests {
     foreach ($path in $logPath) {
         $slowRequests = Select-String -Path "$path\*.log" -Pattern "\d+$slowThreshold"
         if ($slowRequests) {
-            Write-Host "Slow requests found exceeding $slowThreshold ms in $path:" -ForegroundColor Yellow
+            Write-Host "Slow requests found exceeding $slowThreshold ms in `${path}`:" -ForegroundColor Yellow
             $slowRequests | ForEach-Object { Write-Host $_.Line }
         } else {
-            Write-Host "No slow requests detected in $path." -ForegroundColor Green
+            Write-Host "No slow requests detected in `${path}`." -ForegroundColor Green
         }
     }
 }
